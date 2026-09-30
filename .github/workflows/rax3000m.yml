@@ -18,7 +18,7 @@ jobs:
       - name: Build firmware
         run: |
           # 克隆 25.12 仓库源码
-          git clone https://github.com/tfnhui/immortalwrt-mt798x-25.12.git openwrt
+          git clone https://github.com/kaiwater/immortalwrt-mt798x-25.12.git openwrt
           cd openwrt
           
           # 更新 feeds
