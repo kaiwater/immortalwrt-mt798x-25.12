@@ -45,6 +45,16 @@ jobs:
       - name: Build firmware
         if: steps.check.outputs.need_build == 'true'
         run: |
+
+          sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+          sudo -E apt -yqq install dos2unix
+          sudo -E apt -yqq install libfuse-dev
+          sudo -E apt -yqq autoremove --purge
+          sudo -E apt -yqq autoclean
+          sudo -E apt -yqq clean
+          sudo -E systemctl daemon-reload
+
+          
           # 克隆 chasey-dev 25.12 仓库源码
           git clone https://github.com/chasey-dev/immortalwrt-mt798x-rebase.git openwrt -b 25.12
           cd openwrt
@@ -55,6 +65,10 @@ jobs:
           
           # 复制你自己的配置文件
           cp ../defconfig/rax3000m-openclash.config .config
+          
+          make defconfig
+
+          
           # 下载编译所需的源码包
           make download -j$(nproc)
           # 开始编译
