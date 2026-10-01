@@ -27,6 +27,10 @@ jobs:
           
           # 直接复制配置文件
           cp defconfig/rax3000m-openclash.config .config
+          
+          # 按当前源码的 Kconfig 规则展开、归一化配置
+          make defconfig
+
           # 下载编译所需的源码包
           make download -j$(nproc)
           # 开始编译
