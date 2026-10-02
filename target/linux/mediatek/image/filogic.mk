@@ -969,6 +969,33 @@ define Device/cmcc_rax3000m
 endef
 TARGET_DEVICES += cmcc_rax3000m
 
+
+define Device/cmcc_rax3000m_256m
+  DEVICE_VENDOR := CMCC
+  DEVICE_MODEL := RAX3000M (256M NAND)
+  # 基础 DTS 保持基础板定义
+  DEVICE_DTS := mt7981b-cmcc-rax3000m
+  # 必须重写叠加层，将 nand 变更为你复制出来的 256m.dtso
+  DEVICE_DTS_OVERLAY := mt7981b-cmcc-rax3000m-emmc mt7981b-cmcc-rax3000m-nand-256m
+  
+  $(call Device/cmcc_rax3000m_common)
+
+  SUPPORTED_DEVICES := cmcc,rax3000m-nand-256m
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  # 覆盖公共块中的动态计算，强制拉满 250MB 编译上限，彻底解锁 256M 物理空间
+  IMAGE_SIZE := 250880k
+
+  # 剥离 eMMC 目标（256M硬改机不需要生成eMMC固件，精简编译流）
+  ARTIFACTS := nand-preloader.bin nand-bl31-uboot.fip
+  ARTIFACT/nand-preloader.bin := mt7981-bl2 spim-nand-ddr4
+  # 核心修正：指定使用 256m-nand 布局来编译专属的、不崩引导的 FIP
+  ARTIFACT/nand-bl31-uboot.fip := mt7981-bl31-uboot cmcc_rax3000m-nand-256m
+endef
+TARGET_DEVICES += cmcc_rax3000m_256m
+
+
 define Device/cmcc_rax3000me
   DEVICE_VENDOR := CMCC
   DEVICE_MODEL := RAX3000Me
