@@ -1331,6 +1331,7 @@ UBOOT_TARGETS := \
 	mt7981_cmcc_a10 \
 	mt7981_cmcc_rax3000m-emmc \
 	mt7981_cmcc_rax3000m-nand \
+	mt7981_cmcc_rax3000m-nand-256m \
 	mt7981_cmcc_rax3000me-emmc-ddr3 \
 	mt7981_cmcc_rax3000me-emmc-ddr4 \
 	mt7981_cmcc_rax3000me-nand-ddr3 \
