@@ -1,0 +1,41 @@
+ipaddr=192.168.1.1
+serverip=192.168.1.254
+loadaddr=0x46000000
+console=earlycon=uart8250,mmio32,0x11002000 console=ttyS0
+bootconf=config-1#mt7981b-cmcc-rax3000m-nand-256m
+bootcmd=if pstore check ; then run boot_recovery ; else run boot_ubi ; fi
+bootdelay=0
+bootfile=immortalwrt-mediatek-filogic-cmcc_rax3000m-256m-initramfs-recovery.itb
+bootfile_bl2=immortalwrt-mediatek-filogic-cmcc_rax3000m-256m-nand-preloader.bin
+bootfile_fip=immortalwrt-mediatek-filogic-cmcc_rax3000m-256m-nand-bl31-uboot.fip
+bootfile_upg=immortalwrt-mediatek-filogic-cmcc_rax3000m-256m-squashfs-sysupgrade.itb
+bootled_pwr=red:status
+bootled_rec=blue:status
+bootmenu_confirm_return=askenv - Press ENTER to return to menu ; bootmenu 60
+bootmenu_default=0
+bootmenu_delay=0
+bootmenu_title=      [0;34m( ( ( [1;39mOpenWrt[0;34m ) ) )  [0;36m[SPI-NAND 256M][0m
+bootmenu_0=Initialize environment.=run _firstboot
+bootmenu_0d=Run default boot command.=run boot_default
+bootmenu_1=Boot system via TFTP.=run boot_tftp ; run bootmenu_confirm_return
+bootmenu_2=Boot production system from NAND.=run boot_production ; run bootmenu_confirm_return
+bootmenu_3=Boot recovery system from NAND.=run boot_recovery ; run bootmenu_confirm_return
+bootmenu_4=Load production system via TFTP then write to NAND.=setenv noboot 1 ; setenv replacevol 1 ; run boot_tftp_production ; setenv noboot ; setenv replacevol ; run bootmenu_confirm_return
+bootmenu_5=Load recovery system via TFTP then write to NAND.=setenv noboot 1 ; setenv replacevol 1 ; run boot_tftp_recovery ; setenv noboot ; setenv replacevol ; run bootmenu_confirm_return
+bootmenu_6=Reboot.=reboot
+bootmenu_7=Reset to default settings.=run reset_factory ; run bootmenu_confirm_return
+boot_first=run boot_ubi
+boot_default=run boot_ubi
+boot_recovery=nand read $loadaddr recovery 0x400000 && bootm $loadaddr#$bootconf
+boot_ubi=ubi part ubi0 ; ubifsmount ubi0:rootfs ; ubifsload $loadaddr /boot/fit.itb && bootm $loadaddr#$bootconf
+boot_production=nand read $loadaddr production 0x400000 && bootm $loadaddr#$bootconf
+boot_tftp=tftp $loadaddr $bootfile && bootm $loadaddr#$bootconf
+boot_tftp_recovery=tftp $loadaddr $bootfile && run nand_write_recovery
+boot_tftp_production=tftp $loadaddr $bootfile_upg && run nand_write_production
+nand_write_recovery=nand erase recovery 0x400000 && nand write $loadaddr recovery 0x400000
+nand_write_production=nand erase production 0x400000 && nand write $loadaddr production 0x400000
+reset_factory=nand erase u-boot-env && nand erase factory && nand erase production
+_init_env=setenv _init_env ; setenv _create_env ; saveenv ; saveenv
+_firstboot=setenv _firstboot ; run _switch_to_menu ; run _init_env ; run boot_first
+_switch_to_menu=setenv _switch_to_menu ; setenv bootdelay 3 ; setenv bootmenu_delay 3 ; setenv bootmenu_0 $bootmenu_0d ; setenv bootmenu_0d ; run _bootmenu_update_title
+_bootmenu_update_title=setenv _bootmenu_update_title ; setenv bootmenu_title "$bootmenu_title       [33m$ver[0m"
