@@ -3,7 +3,7 @@ name: Auto ImmortalWrt 25.12 for RAX3000M
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 0 */8 * *'
 
 jobs:
   build:
