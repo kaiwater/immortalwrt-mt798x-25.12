@@ -61,6 +61,10 @@ jobs:
           # 克隆 chasey-dev 25.12 仓库源码
           git clone https://github.com/chasey-dev/immortalwrt-mt798x-rebase.git openwrt -b 25.12
           cd openwrt
+
+          # 在自己的仓库中维护该脚本，克隆上游后注入配置
+          python3 ../scripts/inject-rax3000m-256m.py .
+
           
           # 更新 feeds
           ./scripts/feeds update -a
@@ -71,6 +75,15 @@ jobs:
           
           make defconfig
 
+          # 确认新设备和配套 U-Boot 没有被 defconfig 丢弃
+          grep -qx \
+            'CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_cmcc_rax3000m-256m=y' \
+            .config
+      
+          grep -qx \
+            'CONFIG_PACKAGE_u-boot-mt7981_cmcc_rax3000m-nand-256m=y' \
+            .config
+            
           
           # 下载编译所需的源码包
           make download -j$(nproc)
