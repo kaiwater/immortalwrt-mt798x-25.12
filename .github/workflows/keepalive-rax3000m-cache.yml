@@ -1,13 +1,9 @@
 name: Keep RAX3000M build caches warm
 
-# GitHub Actions 默认 7 天不访问就删除缓存，而 RAX3000M 的构建是 8 天一次。
-# 这个 workflow 每周只做 restore，不编译，用来刷新缓存的“最后访问时间”，
-# 让下一次真正的构建仍然能命中 dl / ccache / staging。
+# GitHub Actions 默认 7 天不访问就删除缓存。
+# 现在构建只手动触发，两次构建之间可能超过 7 天，缓存会自然过期。
+# 需要热缓存时，在构建前手动跑一次这个 workflow，只做 restore、不编译。
 on:
-  schedule:
-    # 构建是每 8 天一次，GitHub 缓存 7 天不访问就删；
-    # 每 3 天 touch 一次，避免正好卡在 7 天边界上。
-    - cron: '0 3 */3 * *'
   workflow_dispatch:
 
 jobs:

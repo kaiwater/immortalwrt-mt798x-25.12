@@ -7,8 +7,6 @@ on:
         description: 'Force serial verbose build (make -j1 V=sc)'
         type: boolean
         default: false
-  schedule:
-    - cron: '0 0 */8 * *'
 
 jobs:
   build:
