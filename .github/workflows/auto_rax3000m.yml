@@ -2,13 +2,17 @@ name: Auto ImmortalWrt 25.12 for RAX3000M
 
 on:
   workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Force serial verbose build (make -j1 V=sc)'
+        type: boolean
+        default: false
   schedule:
     - cron: '0 0 */8 * *'
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-        # 👇 添加下面这两行，赋予发布 Release 的权限
     permissions:
       contents: write
     steps:
@@ -19,24 +23,24 @@ jobs:
 
       - name: Get current date
         id: date
-        run: echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+        run: echo "date=$(date +'%Y%m%d')" >> "$GITHUB_OUTPUT"
 
       - name: Check upstream updates
         id: check
         run: |
           UPSTREAM_COMMIT=$(git ls-remote --heads https://github.com/chasey-dev/immortalwrt-mt798x-rebase.git 25.12 | awk '{print $1}')
-          echo "upstream_commit=$UPSTREAM_COMMIT" >> $GITHUB_OUTPUT
-          
+          echo "upstream_commit=$UPSTREAM_COMMIT" >> "$GITHUB_OUTPUT"
+
           if [ -f .last_sync_commit ]; then
             LAST_COMMIT=$(cat .last_sync_commit)
           else
             LAST_COMMIT=""
           fi
-          
+
           if [ "$LAST_COMMIT" = "$UPSTREAM_COMMIT" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
-            echo "need_build=false" >> $GITHUB_OUTPUT
+            echo "need_build=false" >> "$GITHUB_OUTPUT"
           else
-            echo "need_build=true" >> $GITHUB_OUTPUT
+            echo "need_build=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Skip if no update
@@ -45,60 +49,144 @@ jobs:
           echo "上游无更新，跳过编译"
           exit 0
 
-      - name: Build firmware
+      - name: Free disk space
         if: steps.check.outputs.need_build == 'true'
         run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift || true
+          docker system prune -af || true
+          sudo -E apt-get clean || true
+          df -hT
 
+      - name: Build system setup
+        if: steps.check.outputs.need_build == 'true'
+        run: |
           sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
-          sudo -E apt -yqq install dos2unix
-          sudo -E apt -yqq install libfuse-dev
+          sudo -E apt -yqq install dos2unix libfuse-dev ccache
           sudo -E apt -yqq autoremove --purge
           sudo -E apt -yqq autoclean
           sudo -E apt -yqq clean
           sudo -E systemctl daemon-reload
 
-          
-          # 克隆 chasey-dev 25.12 仓库源码
+      - name: Clone upstream
+        if: steps.check.outputs.need_build == 'true'
+        run: |
           git clone https://github.com/chasey-dev/immortalwrt-mt798x-rebase.git openwrt -b 25.12 --depth 1
           cd openwrt
-
           # 在自己的仓库中维护该脚本，克隆上游后注入配置
           python3 ../scripts/inject-rax3000m-256m.py .
 
-          
+      - name: Restore downloads
+        if: steps.check.outputs.need_build == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: openwrt/dl
+          key: ${{ runner.os }}-rax3000m-dl-${{ steps.check.outputs.upstream_commit }}-${{ steps.date.outputs.date }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-rax3000m-dl-
+
+      - name: Restore ccache
+        if: steps.check.outputs.need_build == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: openwrt/.ccache
+          key: ${{ runner.os }}-rax3000m-ccache-${{ steps.check.outputs.upstream_commit }}-${{ steps.date.outputs.date }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-rax3000m-ccache-
+
+      - name: Restore staging
+        if: steps.check.outputs.need_build == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: openwrt/staging_dir
+          key: ${{ runner.os }}-rax3000m-staging-${{ steps.check.outputs.upstream_commit }}-${{ hashFiles('defconfig/rax3000m-openclash.config', 'scripts/inject-rax3000m-256m.py') }}-${{ steps.date.outputs.date }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-rax3000m-staging-${{ steps.check.outputs.upstream_commit }}-${{ hashFiles('defconfig/rax3000m-openclash.config', 'scripts/inject-rax3000m-256m.py') }}-
+            ${{ runner.os }}-rax3000m-staging-${{ steps.check.outputs.upstream_commit }}-
+            ${{ runner.os }}-rax3000m-staging-
+
+      - name: Configure
+        if: steps.check.outputs.need_build == 'true'
+        run: |
+          cd openwrt
+
           # 更新 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          
-          # 复制你自己的配置文件
+
+          # 复制自己的配置文件
           cp ../defconfig/rax3000m-openclash.config .config
-          
+
+          # 打开 ccache；make defconfig 会把没有实际生效的符号丢掉，所以复查
+          grep -q '^CONFIG_CCACHE=y' .config || echo 'CONFIG_CCACHE=y' >> .config
           make defconfig
+          grep -q '^CONFIG_CCACHE=y' .config || { echo 'CONFIG_CCACHE was dropped by defconfig'; exit 1; }
+
+          # 限制 ccache 体积，避免和 dl/staging 一起超过仓库缓存上限
+          CCACHE_DIR="$PWD/.ccache" ccache -M 2G || true
 
           # 确认新设备和配套 U-Boot 没有被 defconfig 丢弃
           grep -qx \
             'CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_cmcc_rax3000m-256m=y' \
             .config
-      
           grep -qx \
             'CONFIG_PACKAGE_u-boot-mt7981_cmcc_rax3000m-nand-256m=y' \
             .config
-            
-          
-          # 下载编译所需的源码包
-          #make download -j$(nproc)
-          make download -j1 V=sc
-          # 开始编译
-          #make -j$(nproc)
-          make -j1 V=sc
-          
+
+      - name: Download packages
+        if: steps.check.outputs.need_build == 'true'
+        run: |
+          cd openwrt
+          # 下载是 IO 密集，并行不影响错误定位
+          make download -j$(nproc)
+
+      - name: Build firmware
+        if: steps.check.outputs.need_build == 'true'
+        run: |
+          cd openwrt
+          if [ "${{ inputs.debug }}" = "true" ]; then
+            echo "debug mode: make -j1 V=sc"
+            make -j1 V=sc
+          else
+            # 并行优先；失败时从失败点串行 verbose 重跑，日志干净
+            make -j$(nproc) V=s || make -j1 V=sc
+          fi
+
+      - name: Package outputs
+        if: steps.check.outputs.need_build == 'true'
+        run: |
+          cd openwrt
           # 删除 packages 目录（不需要上传）
           rm -rf bin/targets/mediatek/filogic/packages
-
           cp .config bin/targets/mediatek/filogic/config.txt
 
+      # dl/ 和 .ccache 在失败时也保存：修复后的下一次构建可以直接接力
+      - name: Save downloads
+        if: always() && steps.check.outputs.need_build == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: openwrt/dl
+          key: ${{ runner.os }}-rax3000m-dl-${{ steps.check.outputs.upstream_commit }}-${{ steps.date.outputs.date }}-${{ github.run_id }}
+
+      - name: Save ccache
+        if: always() && steps.check.outputs.need_build == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: openwrt/.ccache
+          key: ${{ runner.os }}-rax3000m-ccache-${{ steps.check.outputs.upstream_commit }}-${{ steps.date.outputs.date }}-${{ github.run_id }}
+
+      # staging_dir 只在成功时保存：半成品 stamp 有让下一轮状态不一致的风险
+      - name: Save staging
+        if: success() && steps.check.outputs.need_build == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: openwrt/staging_dir
+          key: ${{ runner.os }}-rax3000m-staging-${{ steps.check.outputs.upstream_commit }}-${{ hashFiles('defconfig/rax3000m-openclash.config', 'scripts/inject-rax3000m-256m.py') }}-${{ steps.date.outputs.date }}-${{ github.run_id }}
+
       - name: Update sync record
-        if: steps.check.outputs.need_build == 'true'
+        if: success() && steps.check.outputs.need_build == 'true'
         run: |
           echo "${{ steps.check.outputs.upstream_commit }}" > .last_sync_commit
           git config user.name "github-actions[bot]"
@@ -108,7 +196,7 @@ jobs:
           git push || true
 
       - name: Upload firmware
-        if: steps.check.outputs.need_build == 'true'
+        if: success() && steps.check.outputs.need_build == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-25.12-rax3000m-firmware
@@ -116,14 +204,14 @@ jobs:
           if-no-files-found: warn
 
       - name: Create Release and Upload Assets
-        if: steps.check.outputs.need_build == 'true'
+        if: success() && steps.check.outputs.need_build == 'true'
         uses: softprops/action-gh-release@v1
         with:
           name: "RAX3000M 固件 ${{ steps.date.outputs.date }} #${{ github.run_number }}"
           tag_name: "build-${{ steps.date.outputs.date }}-${{ github.run_number }}"
           body: |
             ## 自动编译固件
-            
+
             - 编译时间：${{ steps.date.outputs.date }}
             - 编译编号：#${{ github.run_number }}
             - 设备：CMCC RAX3000M (eMMC / NAND)

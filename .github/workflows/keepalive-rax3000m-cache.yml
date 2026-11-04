@@ -1,0 +1,37 @@
+name: Keep RAX3000M build caches warm
+
+# GitHub Actions 默认 7 天不访问就删除缓存，而 RAX3000M 的构建是 8 天一次。
+# 这个 workflow 每周只做 restore，不编译，用来刷新缓存的“最后访问时间”，
+# 让下一次真正的构建仍然能命中 dl / ccache / staging。
+on:
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Restore downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: openwrt/dl
+          key: keepalive-${{ github.run_id }}-dl
+          restore-keys: |
+            ${{ runner.os }}-rax3000m-dl-
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: openwrt/.ccache
+          key: keepalive-${{ github.run_id }}-ccache
+          restore-keys: |
+            ${{ runner.os }}-rax3000m-ccache-
+
+      - name: Restore staging
+        uses: actions/cache/restore@v4
+        with:
+          path: openwrt/staging_dir
+          key: keepalive-${{ github.run_id }}-staging
+          restore-keys: |
+            ${{ runner.os }}-rax3000m-staging-
