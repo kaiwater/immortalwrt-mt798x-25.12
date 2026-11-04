@@ -5,7 +5,9 @@ name: Keep RAX3000M build caches warm
 # 让下一次真正的构建仍然能命中 dl / ccache / staging。
 on:
   schedule:
-    - cron: '0 3 * * 0'
+    # 构建是每 8 天一次，GitHub 缓存 7 天不访问就删；
+    # 每 3 天 touch 一次，避免正好卡在 7 天边界上。
+    - cron: '0 3 */3 * *'
   workflow_dispatch:
 
 jobs:
