@@ -48,7 +48,15 @@ jobs:
           # 克隆 chasey-dev 25.12 仓库源码
           git clone https://github.com/chasey-dev/immortalwrt-mt798x-rebase.git openwrt -b 25.12
           cd openwrt
-          
+
+          # dropbear 2025.89 安全回移（CVE-2026-3706 等）
+          ver=$(sed -n 's/^PKG_VERSION:=//p' package/network/services/dropbear/Makefile | head -n1)
+          if [ "$ver" = "2025.89" ]; then
+            cp ../patches/dropbear/*.patch package/network/services/dropbear/patches/
+          else
+            echo "dropbear ${ver:-unknown}，跳过回移补丁"
+          fi
+
           # 更新 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a

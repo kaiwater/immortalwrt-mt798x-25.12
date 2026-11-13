@@ -73,6 +73,20 @@ jobs:
           # 在自己的仓库中维护该脚本，克隆上游后注入配置
           python3 ../scripts/inject-rax3000m-256m.py .
 
+      - name: Backport dropbear security patches
+        if: steps.check.outputs.need_build == 'true'
+        run: |
+          set -e
+          pkg=openwrt/package/network/services/dropbear
+          ver=$(sed -n 's/^PKG_VERSION:=//p' "$pkg/Makefile" | head -n1)
+          if [ "$ver" != "2025.89" ]; then
+            echo "dropbear ${ver:-unknown} 已包含 2026.90+ 修复，跳过回移补丁。"
+            exit 0
+          fi
+          cp patches/dropbear/*.patch "$pkg/patches/"
+          echo "已追加 dropbear 2025.89 安全回移补丁："
+          ls -1 "$pkg/patches" | grep -E '^00(09|10|11|12)-'
+
       - name: Restore downloads
         if: steps.check.outputs.need_build == 'true'
         uses: actions/cache/restore@v4
