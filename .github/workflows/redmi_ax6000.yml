@@ -1,0 +1,82 @@
+name: Build ImmortalWrt 25.12 for Redmi AX6000
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y%m%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Build firmware
+        run: |
+          sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+          sudo -E apt -yqq install dos2unix
+          sudo -E apt -yqq install libfuse-dev
+          sudo -E apt -yqq autoremove --purge
+          sudo -E apt -yqq autoclean
+          sudo -E apt -yqq clean
+          sudo -E systemctl daemon-reload
+
+          # 克隆 25.12 仓库源码
+          git clone https://github.com/kaiwater/immortalwrt-mt798x-25.12.git openwrt
+          cd openwrt
+
+          # dropbear 2025.89 安全回移（CVE-2026-3706 等）
+          ver=$(sed -n 's/^PKG_VERSION:=//p' package/network/services/dropbear/Makefile | head -n1)
+          if [ "$ver" = "2025.89" ]; then
+            cp ../patches/dropbear/*.patch package/network/services/dropbear/patches/
+          else
+            echo "dropbear ${ver:-unknown}，跳过回移补丁"
+          fi
+
+          # 更新 feeds
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+          # 直接复制配置文件
+          cp defconfig/redmi-ax6000-stock.config .config
+
+          # 按当前源码的 Kconfig 规则展开、归一化配置
+          make defconfig
+
+          # 下载编译所需的源码包
+          make download -j$(nproc)
+          # 开始编译
+          make -j$(nproc)
+
+          # 删除 packages 目录（不需要上传）
+          rm -rf bin/targets/mediatek/filogic/packages
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-25.12-redmi-ax6000-firmware
+          path: openwrt/bin/targets/mediatek/filogic/
+          if-no-files-found: warn
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "Redmi AX6000 固件 ${{ steps.date.outputs.date }} #${{ github.run_number }}"
+          tag_name: "redmi-ax6000-${{ steps.date.outputs.date }}-${{ github.run_number }}"
+          body: |
+            ## 自动编译固件
+
+            - 编译时间：${{ steps.date.outputs.date }}
+            - 编译编号：#${{ github.run_number }}
+            - 设备：Xiaomi Redmi AX6000 (stock layout)
+            - 内核：6.12（25.12 版本）
+            - 无线：mtwifi (MT7986)
+            - 包含插件：PassWall、AdGuardHome、磁盘管理、Samba4、Argon 主题等
+          files: openwrt/bin/targets/mediatek/filogic/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
