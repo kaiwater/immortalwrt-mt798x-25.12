@@ -23,8 +23,8 @@ tar -xzf $CORE_CACHE -C $CORE_DIR/.extract
 mv $CORE_DIR/.extract/clash $CORE_DIR/clash_meta
 rm -rf $CORE_DIR/.extract
 chmod 0755 $CORE_DIR/clash_meta
+rm -f $OC/root/etc/openclash/GeoSite.dat $OC/root/etc/openclash/Country.mmdb $OC/root/etc/openclash/chnlist
 RULES=feeds/luci/applications/luci-app-passwall/root/usr/share/passwall/rules
 cp -f $RULES/gfwlist $OC/root/etc/openclash/gfwlist
-cp -f $RULES/chnlist $OC/root/etc/openclash/chnlist
 echo "package: $OC"
-ls -lh $CORE_DIR/clash_meta $OC/root/etc/openclash/gfwlist $OC/root/etc/openclash/chnlist
+ls -lh $CORE_DIR/clash_meta $OC/root/etc/openclash/gfwlist

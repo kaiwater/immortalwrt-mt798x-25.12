@@ -206,6 +206,15 @@ openclash 变体可容纳 GeoIP+GeoSite（约 18 MB），三件套约 22.5 MB �
 - 取到 Mac：`limactl copy qnap-test:/mnt/qnap/out/<目录> ~/Downloads/`
 - GitHub Release：`redmi-ax6000-passwall-*` / `redmi-ax6000-openclash-*`
 
+## 6.2 geodata apk
+
+固件不内置 GeoSite/GeoIP。需要开箱即用时，安装对应变体的 geodata apk：
+
+- `openclash-geodata` → `/etc/openclash/`
+- `passwall-geodata` → `/usr/share/v2ray/`
+
+构建、路径、体积与安装方式见 [geodata-apk.md](geodata-apk.md)。
+
 ## 7. 常见维护操作
 
 ```sh
