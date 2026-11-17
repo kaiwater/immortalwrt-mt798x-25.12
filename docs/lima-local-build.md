@@ -59,6 +59,26 @@ openclash 变体在 `feeds install` 之后、`make defconfig` 之前需要执行
 - 下载 mihomo meta core 到 `dl/`，解压为 `root/etc/openclash/core/clash_meta`
 - 从 passwall 规则目录复制 `gfwlist` / `chnlist` 到 OpenClash 的 `/etc/openclash/`
 
+### 3.2 内核版本（6.12.87 vs 6.12.116）
+
+内核版本由**源码树**决定，不是设备：
+
+| 树 | kernel-6.12 |
+| --- | --- |
+| `kaiwater/immortalwrt-mt798x-25.12` | 6.12.87 |
+| `chasey-dev/immortalwrt-mt798x-rebase` | 6.12.116 |
+
+要和 CI（clone chasey-dev）以及 rax3000 系列保持一致，请用 chasey-dev 树 + 本仓库的 `defconfig/redmi-ax6000-stock*.config` 构建；AX6000 的 device 定义上游自带，`scripts/prepare-openclash.sh` 同样适用。
+
+```sh
+cd /mnt/qnap/projects/wrt/rax-src      # chasey-dev 25.12
+cp /mnt/qnap/projects/wrt/rax-builder/defconfig/redmi-ax6000-stock.config .config
+# 注入 CCACHE / GOLANG_EXTERNAL_BOOTSTRAP_ROOT 后
+make defconfig && make -j8
+```
+
+用 kaiwater 树构建得到的是 6.12.87，仅用于验证补丁/配置，不建议作为最终发布。
+
 ## 4. 本地构建步骤
 
 ```sh
