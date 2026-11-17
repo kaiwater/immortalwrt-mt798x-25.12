@@ -2,6 +2,11 @@ name: Build ImmortalWrt 25.12 for Redmi AX6000
 
 on:
   workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Force serial verbose build (make -j1 V=sc)'
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -11,52 +16,197 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Get current date
         id: date
         run: echo "date=$(date +'%Y%m%d')" >> "$GITHUB_OUTPUT"
 
-      - name: Build firmware
+      - name: Check upstream updates
+        id: check
+        run: |
+          UPSTREAM_COMMIT=$(git ls-remote --heads https://github.com/chasey-dev/immortalwrt-mt798x-rebase.git 25.12 | awk '{print $1}')
+          echo "upstream_commit=$UPSTREAM_COMMIT" >> "$GITHUB_OUTPUT"
+
+          if [ -f .last_sync_commit ]; then
+            LAST_COMMIT=$(cat .last_sync_commit)
+          else
+            LAST_COMMIT=""
+          fi
+
+          if [ "$LAST_COMMIT" = "$UPSTREAM_COMMIT" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "need_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "need_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if no update
+        if: steps.check.outputs.need_build == 'false'
+        run: |
+          echo "上游无更新，跳过编译"
+          exit 0
+
+      - name: Free disk space
+        if: steps.check.outputs.need_build == 'true'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift || true
+          docker system prune -af || true
+          sudo -E apt-get clean || true
+          df -hT
+
+      - name: Build system setup
+        if: steps.check.outputs.need_build == 'true'
         run: |
           sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
-          sudo -E apt -yqq install dos2unix
-          sudo -E apt -yqq install libfuse-dev
+          sudo -E apt -yqq install dos2unix libfuse-dev ccache
           sudo -E apt -yqq autoremove --purge
           sudo -E apt -yqq autoclean
           sudo -E apt -yqq clean
           sudo -E systemctl daemon-reload
 
-          # 克隆 25.12 仓库源码
-          git clone https://github.com/kaiwater/immortalwrt-mt798x-25.12.git openwrt
-          cd openwrt
+      - name: Clone upstream
+        if: steps.check.outputs.need_build == 'true'
+        run: |
+          # Xiaomi Redmi AX6000 的 device 定义在上游 chasey-dev 25.12 里自带，
+          # 本仓库只维护 defconfig 与 workflow（注入式，不改上游树）
+          git clone https://github.com/chasey-dev/immortalwrt-mt798x-rebase.git openwrt -b 25.12 --depth 1
 
-          # dropbear 2025.89 安全回移（CVE-2026-3706 等）
-          ver=$(sed -n 's/^PKG_VERSION:=//p' package/network/services/dropbear/Makefile | head -n1)
-          if [ "$ver" = "2025.89" ]; then
-            cp ../patches/dropbear/*.patch package/network/services/dropbear/patches/
-          else
-            echo "dropbear ${ver:-unknown}，跳过回移补丁"
+      - name: Backport dropbear security patches
+        if: steps.check.outputs.need_build == 'true'
+        run: |
+          set -e
+          pkg=openwrt/package/network/services/dropbear
+          ver=$(sed -n 's/^PKG_VERSION:=//p' "$pkg/Makefile" | head -n1)
+          if [ "$ver" != "2025.89" ]; then
+            echo "dropbear ${ver:-unknown} 已包含 2026.90+ 修复，跳过回移补丁。"
+            exit 0
           fi
+          cp patches/dropbear/*.patch "$pkg/patches/"
+          echo "已追加 dropbear 2025.89 安全回移补丁："
+          ls -1 "$pkg/patches" | grep -E '^00(09|10|11|12)-'
+
+      - name: Restore downloads
+        if: steps.check.outputs.need_build == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: openwrt/dl
+          key: ${{ runner.os }}-redmi-ax6000-dl-${{ steps.check.outputs.upstream_commit }}-${{ steps.date.outputs.date }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-redmi-ax6000-dl-
+
+      - name: Restore ccache
+        if: steps.check.outputs.need_build == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: openwrt/.ccache
+          key: ${{ runner.os }}-redmi-ax6000-ccache-${{ steps.check.outputs.upstream_commit }}-${{ steps.date.outputs.date }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-redmi-ax6000-ccache-
+
+      - name: Restore staging
+        if: steps.check.outputs.need_build == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: openwrt/staging_dir
+          key: ${{ runner.os }}-redmi-ax6000-staging-${{ steps.check.outputs.upstream_commit }}-${{ hashFiles('defconfig/redmi-ax6000-stock.config') }}-${{ steps.date.outputs.date }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-redmi-ax6000-staging-${{ steps.check.outputs.upstream_commit }}-${{ hashFiles('defconfig/redmi-ax6000-stock.config') }}-
+            ${{ runner.os }}-redmi-ax6000-staging-${{ steps.check.outputs.upstream_commit }}-
+            ${{ runner.os }}-redmi-ax6000-staging-
+
+      - name: Configure
+        if: steps.check.outputs.need_build == 'true'
+        run: |
+          cd openwrt
 
           # 更新 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # 直接复制配置文件
-          cp defconfig/redmi-ax6000-stock.config .config
+          # 复制自己的配置文件（来自触发分支的 checkout，而不是上游树）
+          cp ../defconfig/redmi-ax6000-stock.config .config
 
-          # 按当前源码的 Kconfig 规则展开、归一化配置
+          # 打开 ccache；make defconfig 会把没有实际生效的符号丢掉，所以复查
+          grep -q '^CONFIG_CCACHE=y' .config || echo 'CONFIG_CCACHE=y' >> .config
           make defconfig
+          grep -q '^CONFIG_CCACHE=y' .config || { echo 'CONFIG_CCACHE was dropped by defconfig'; exit 1; }
 
-          # 下载编译所需的源码包
+          # 限制 ccache 体积，避免和 dl/staging 一起超过仓库缓存上限
+          CCACHE_DIR="$PWD/.ccache" ccache -M 2G || true
+
+          # 确认设备和 mtwifi 没有被 defconfig 丢弃
+          grep -qx \
+            'CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_xiaomi_redmi-router-ax6000-stock=y' \
+            .config
+          grep -qx 'CONFIG_PACKAGE_kmod-mt_wifi=y' .config
+          grep -qx 'CONFIG_MTK_CHIP_MT7986=y' .config
+
+      - name: Download packages
+        if: steps.check.outputs.need_build == 'true'
+        run: |
+          cd openwrt
+          # 下载是 IO 密集，并行不影响错误定位
           make download -j$(nproc)
-          # 开始编译
-          make -j$(nproc)
 
+      - name: Build firmware
+        if: steps.check.outputs.need_build == 'true'
+        run: |
+          cd openwrt
+          if [ "${{ inputs.debug }}" = "true" ]; then
+            echo "debug mode: make -j1 V=sc"
+            make -j1 V=sc
+          else
+            # 并行优先；失败时从失败点串行 verbose 重跑，日志干净
+            make -j$(nproc) V=s || make -j1 V=sc
+          fi
+
+      - name: Package outputs
+        if: steps.check.outputs.need_build == 'true'
+        run: |
+          cd openwrt
           # 删除 packages 目录（不需要上传）
           rm -rf bin/targets/mediatek/filogic/packages
+          cp .config bin/targets/mediatek/filogic/config.txt
+
+      # dl/ 和 .ccache 在失败时也保存：修复后的下一次构建可以直接接力
+      - name: Save downloads
+        if: always() && steps.check.outputs.need_build == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: openwrt/dl
+          key: ${{ runner.os }}-redmi-ax6000-dl-${{ steps.check.outputs.upstream_commit }}-${{ steps.date.outputs.date }}-${{ github.run_id }}
+
+      - name: Save ccache
+        if: always() && steps.check.outputs.need_build == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: openwrt/.ccache
+          key: ${{ runner.os }}-redmi-ax6000-ccache-${{ steps.check.outputs.upstream_commit }}-${{ steps.date.outputs.date }}-${{ github.run_id }}
+
+      # staging_dir 只在成功时保存：半成品 stamp 有让下一轮状态不一致的风险
+      - name: Save staging
+        if: success() && steps.check.outputs.need_build == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: openwrt/staging_dir
+          key: ${{ runner.os }}-redmi-ax6000-staging-${{ steps.check.outputs.upstream_commit }}-${{ hashFiles('defconfig/redmi-ax6000-stock.config') }}-${{ steps.date.outputs.date }}-${{ github.run_id }}
+
+      - name: Update sync record
+        if: success() && steps.check.outputs.need_build == 'true'
+        run: |
+          echo "${{ steps.check.outputs.upstream_commit }}" > .last_sync_commit
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .last_sync_commit
+          git commit -m "Update sync record" || true
+          git push || true
 
       - name: Upload firmware
+        if: success() && steps.check.outputs.need_build == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-25.12-redmi-ax6000-firmware
@@ -64,6 +214,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Create Release and Upload Assets
+        if: success() && steps.check.outputs.need_build == 'true'
         uses: softprops/action-gh-release@v1
         with:
           name: "Redmi AX6000 固件 ${{ steps.date.outputs.date }} #${{ github.run_number }}"
