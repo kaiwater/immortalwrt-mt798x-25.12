@@ -226,6 +226,12 @@ openclash 变体可容纳 GeoIP+GeoSite（约 18 MB），三件套约 22.5 MB �
 - 取到 Mac：`limactl copy qnap-test:/mnt/qnap/out/<目录> ~/Downloads/`
 - GitHub Release：`redmi-ax6000-passwall-*` / `redmi-ax6000-openclash-*`
 
+## 6.1.1 Release 命名
+
+`k616` 表示 kernel 6.12.116。正式 tag 不带 `k616`，但内容一致；6.12.87 的旧构建已清理。
+
+发布 tag、容量与资产清单见 [releases.md](releases.md)。
+
 ## 6.2 geodata apk
 
 固件不内置 GeoSite/GeoIP。需要开箱即用时，安装对应变体的 geodata apk：
