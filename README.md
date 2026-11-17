@@ -1,5 +1,10 @@
 # ImmortalWrt - MT798x
 
+> [!IMPORTANT]
+> **固件构建请使用 `chasey-dev/immortalwrt-mt798x-rebase` 25.12（kernel 6.12.116）。**
+> 本仓库只维护 `defconfig/`、workflow 和文档，内部源码树是 6.12.87，不能用于最终发布。
+> 详见 [BUILDING.md](BUILDING.md)。
+
 ```
 This repository is worked on ImmortalWrt with MTK OpenWrt Feeds patches imported.
 ```

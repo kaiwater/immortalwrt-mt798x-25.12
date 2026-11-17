@@ -79,6 +79,8 @@ make defconfig && make -j8
 
 用 kaiwater 树构建得到的是 6.12.87，仅用于验证补丁/配置，不建议作为最终发布。
 
+一键构建与硬校验见 [BUILDING.md](../BUILDING.md) 和 `scripts/build-ax6000.sh`；脚本会拒绝 kernel 不是 6.12.116 的树。
+
 ## 4. 本地构建步骤
 
 ```sh
