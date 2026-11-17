@@ -15,6 +15,7 @@
 | 共享下载 | `/mnt/qnap/dl` |
 | ccache | `/mnt/qnap/ccache` |
 | 日志 | `/mnt/qnap/logs` |
+| Go 引导编译器 | `/opt/go-bootstrap` → `/mnt/qnap/toolchains/go-bootstrap`（go1.24.13 linux-arm64） |
 
 构建目录全部落在 `/mnt/qnap`，系统盘只放 VM 本身。
 
@@ -64,6 +65,10 @@ cp defconfig/redmi-ax6000-stock.config .config
 grep -q '^CONFIG_CCACHE=y' .config || echo 'CONFIG_CCACHE=y' >> .config
 sed -i '/^CONFIG_CCACHE_DIR=/d' .config
 echo 'CONFIG_CCACHE_DIR="/mnt/qnap/ccache"' >> .config
+
+# 仅本地（arm64 宿主）：使用 QNAP 里预置的 Go 1.24.13 作为引导编译器。
+# 不设置时 OpenWrt 会去编 go1.4 bootstrap，而它不支持 linux/arm64，直接报错。
+sed -i 's|^CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=.*|CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="/opt/go-bootstrap"|' .config
 
 make defconfig
 
@@ -127,7 +132,31 @@ bin/targets/mediatek/filogic/
 - 该仓库是 fork，Actions 默认被禁用；首次使用需在仓库 Actions 页面启用（或关闭账号级 “Disable actions on forked repositories”）。
 - 若上游 `chasey-dev` 把 AX6000 定义移除或改名，CI 会在 Configure 步骤的 `grep -qx` 校验处直接失败，而不是产出空镜像。
 
-## 6. 常见维护操作
+## 6. 故障排查
+
+### `go-bootstrap cannot be installed on linux/arm64`
+
+```
+Makefile:336: *** go-bootstrap cannot be installed on linux/arm64.  Stop.
+ERROR: package/feeds/packages/golang-bootstrap [host] failed to build.
+```
+
+原因：`golang-bootstrap` 的默认引导编译器是 go1.4，只有 amd64/386/arm 版本；aarch64 宿主必须用外部 Go。
+
+处理：
+
+```sh
+sed -i 's|^CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=.*|CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="/opt/go-bootstrap"|' .config
+make defconfig
+make package/feeds/packages/golang-bootstrap/host/compile -j8
+make -j8
+```
+
+`/opt/go-bootstrap` 在 VM 里已软链到 `/mnt/qnap/toolchains/go-bootstrap`，版本为 go1.24.13 linux-arm64。
+
+> `CONFIG_CCACHE_DIR` 与 `CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT` 都是**本机专属**，不要写进提交的 `defconfig/`。
+
+## 7. 常见维护操作
 
 ```sh
 # 只重新生成 defconfig（改包后）
