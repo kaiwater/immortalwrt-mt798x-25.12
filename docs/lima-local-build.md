@@ -40,6 +40,25 @@
 - 非平台软件包：与 rax3000m 相同的一套（passwall、sing-box、AdGuardHome、diskman、samba4、vlmcsd、USB/文件系统工具等）
 - 首次刷机：`initramfs-factory.ubi` → 进入 initramfs 后刷 `squashfs-sysupgrade.bin`
 
+### 3.1 两个变体
+
+| 变体 | defconfig | 内容 |
+| --- | --- | --- |
+| passwall | `defconfig/redmi-ax6000-stock.config` | passwall + sing-box、AdGuardHome、diskman、samba4、vlmcsd、Argon |
+| openclash | `defconfig/redmi-ax6000-stock-openclash.config` | OpenClash（`dnsmasq-full`）+ 内置 meta core + 小体积 gfwlist/chnlist；**不含 passwall / sing-box** |
+
+openclash 变体在 `feeds install` 之后、`make defconfig` 之前需要执行一次：
+
+```sh
+./scripts/prepare-openclash.sh
+```
+
+脚本会：
+
+- 解析 `package/feeds/*/luci-app-openclash` 找到实际被安装的包（本仓库里是 `feeds/luci/applications/luci-app-openclash`，不是 `feeds/openclash/...`）
+- 下载 mihomo meta core 到 `dl/`，解压为 `root/etc/openclash/core/clash_meta`
+- 从 passwall 规则目录复制 `gfwlist` / `chnlist` 到 OpenClash 的 `/etc/openclash/`
+
 ## 4. 本地构建步骤
 
 ```sh
@@ -132,6 +151,19 @@ bin/targets/mediatek/filogic/
 - 该仓库是 fork，Actions 默认被禁用；首次使用需在仓库 Actions 页面启用（或关闭账号级 “Disable actions on forked repositories”）。
 - 若上游 `chasey-dev` 把 AX6000 定义移除或改名，CI 会在 Configure 步骤的 `grep -qx` 校验处直接失败，而不是产出空镜像。
 
+### `package/feeds/packages/rust [host] failed to build.`
+
+两个来源：
+
+1. passwall 的 `INCLUDE_Shadowsocks_Rust_Server` 在 aarch64 上默认 `y`，会带 `shadowsocks-rust-ssserver`。不需要 SS 服务端时关掉：
+   `# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server is not set`
+2. OpenClash 依赖 `ruby`，而 ruby 在 aarch64 上默认开 YJIT，`PKG_BUILD_DEPENDS:=RUBY_ENABLE_YJIT:rust/host`：
+   `# CONFIG_RUBY_ENABLE_YJIT is not set`
+
+### OpenClash 镜像里没有 core
+
+`feeds/openclash` 与 `feeds/luci` 各有一份 `luci-app-openclash`。实际安装的是 `package/feeds/luci/luci-app-openclash`（指向 `feeds/luci/applications/luci-app-openclash`）。`scripts/prepare-openclash.sh` 已改为通过 `package/feeds/*` 解析真实路径，避免注入到未使用的 tree。
+
 ## 6. 故障排查
 
 ### `go-bootstrap cannot be installed on linux/arm64`
@@ -155,6 +187,24 @@ make -j8
 `/opt/go-bootstrap` 在 VM 里已软链到 `/mnt/qnap/toolchains/go-bootstrap`，版本为 go1.24.13 linux-arm64。
 
 > `CONFIG_CCACHE_DIR` 与 `CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT` 都是**本机专属**，不要写进提交的 `defconfig/`。
+
+## 6.1 容量与产物
+
+AX6000 stock 布局：`ubi_kernel` 30 MiB，`ubi` 80 MiB（可用约 76.5 MiB，LEB 124 KiB）。
+
+| 变体 | rootfs（squashfs） | overlay 约 | 说明 |
+| --- | --- | --- | --- |
+| passwall | 48.6 MiB | 27–28 MiB | 含 sing-box |
+| openclash | 56.8 MiB | 19.7 MiB | 含 13MB meta core + GeoSite.dat；已去掉 geoview |
+
+geodata 参考：GeoIP ≈ 7.5 MB、GeoSite ≈ 10.5 MB、Country.mmdb ≈ 4.5 MB。
+openclash 变体可容纳 GeoIP+GeoSite（约 18 MB），三件套约 22.5 MB 会偏紧。
+
+产物归档：
+
+- VM 内：`/mnt/qnap/out/redmi-ax6000-<variant>-<时间>/`
+- 取到 Mac：`limactl copy qnap-test:/mnt/qnap/out/<目录> ~/Downloads/`
+- GitHub Release：`redmi-ax6000-passwall-*` / `redmi-ax6000-openclash-*`
 
 ## 7. 常见维护操作
 
